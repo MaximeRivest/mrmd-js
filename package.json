@@ -1,0 +1,49 @@
+{
+  "name": "mrmd-js",
+  "version": "0.1.0",
+  "description": "Browser-side JavaScript runtime for mrmd notebooks with LSP-like features",
+  "type": "module",
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "rollup -c",
+    "dev": "rollup -c -w",
+    "test": "vitest",
+    "typecheck": "tsc --noEmit",
+    "serve": "node test-app/server.js",
+    "demo": "npm run build && npm run serve"
+  },
+  "devDependencies": {
+    "@rollup/plugin-typescript": "^11.1.5",
+    "rollup": "^4.9.0",
+    "rollup-plugin-dts": "^6.1.0",
+    "tslib": "^2.6.0",
+    "typescript": "^5.3.0",
+    "vitest": "^1.0.0"
+  },
+  "keywords": [
+    "mrmd",
+    "notebook",
+    "javascript",
+    "runtime",
+    "repl",
+    "lsp",
+    "completion"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/anthropics/mrmd-packages"
+  }
+}

@@ -1,0 +1,860 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>mrmd-js Test</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a2e;
+      color: #eee;
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    h1 {
+      font-size: 1.5rem;
+      margin-bottom: 10px;
+      color: #58a6ff;
+    }
+
+    h2 {
+      font-size: 1rem;
+      margin-bottom: 10px;
+      color: #7ee787;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 20px;
+    }
+
+    .tab {
+      padding: 8px 16px;
+      background: #16213e;
+      border: none;
+      border-radius: 6px 6px 0 0;
+      color: #8b949e;
+      cursor: pointer;
+      font-size: 0.9rem;
+    }
+
+    .tab.active {
+      background: #21262d;
+      color: #58a6ff;
+    }
+
+    .tab-content {
+      display: none;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    .container {
+      display: grid;
+      grid-template-columns: 1fr 300px;
+      gap: 20px;
+    }
+
+    .main {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .cell {
+      background: #16213e;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .cell-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 12px;
+      background: #1a1a2e;
+      border-bottom: 1px solid #333;
+    }
+
+    .cell-header span {
+      font-size: 0.8rem;
+      color: #888;
+    }
+
+    .scope-badge {
+      background: #58a6ff;
+      color: #000;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 0.7rem;
+      font-weight: bold;
+    }
+
+    .scope-badge.main {
+      background: #f85149;
+      color: #fff;
+    }
+
+    .cell-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    button {
+      background: #58a6ff;
+      color: #000;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.85rem;
+      font-weight: 500;
+    }
+
+    button:hover {
+      background: #79b8ff;
+    }
+
+    button.secondary {
+      background: #333;
+      color: #eee;
+    }
+
+    button.secondary:hover {
+      background: #444;
+    }
+
+    button.danger {
+      background: #f85149;
+      color: #fff;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 100px;
+      padding: 12px;
+      background: #0d1117;
+      color: #c9d1d9;
+      border: none;
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      font-size: 14px;
+      line-height: 1.5;
+      resize: vertical;
+    }
+
+    textarea:focus {
+      outline: none;
+      background: #161b22;
+    }
+
+    .output {
+      padding: 12px;
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      font-size: 13px;
+      white-space: pre-wrap;
+      min-height: 40px;
+      background: #0d1117;
+      border-top: 1px solid #333;
+    }
+
+    .output.error {
+      color: #f85149;
+    }
+
+    .output.success {
+      color: #7ee787;
+    }
+
+    .result {
+      color: #58a6ff;
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px dashed #333;
+    }
+
+    .duration {
+      color: #8b949e;
+      font-size: 0.8rem;
+      margin-top: 8px;
+    }
+
+    /* Sidebar */
+    .sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+    }
+
+    .panel {
+      background: #16213e;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .panel-header {
+      padding: 10px 12px;
+      background: #1a1a2e;
+      border-bottom: 1px solid #333;
+      font-weight: 500;
+      font-size: 0.9rem;
+    }
+
+    .panel-content {
+      padding: 10px;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    /* Variables panel */
+    .variable {
+      display: flex;
+      justify-content: space-between;
+      padding: 6px 8px;
+      border-radius: 4px;
+      margin-bottom: 4px;
+      background: #0d1117;
+      font-family: monospace;
+      font-size: 0.85rem;
+    }
+
+    .variable-name {
+      color: #79c0ff;
+    }
+
+    .variable-type {
+      color: #8b949e;
+      font-size: 0.75rem;
+    }
+
+    .variable-value {
+      color: #7ee787;
+      text-align: right;
+      max-width: 150px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* Empty state */
+    .empty {
+      color: #8b949e;
+      font-style: italic;
+      font-size: 0.85rem;
+    }
+
+    /* Artifacts section */
+    .artifacts-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 15px;
+      margin-top: 10px;
+    }
+
+    .artifact {
+      background: #16213e;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .artifact-header {
+      padding: 8px 12px;
+      background: #1a1a2e;
+      border-bottom: 1px solid #333;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .artifact-name {
+      color: #d2a8ff;
+      font-weight: 500;
+    }
+
+    .artifact-container {
+      height: 200px;
+      background: white;
+    }
+
+    /* Status bar */
+    .status-bar {
+      margin-top: 20px;
+      padding: 10px;
+      background: #16213e;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      color: #8b949e;
+    }
+
+    .status-bar code {
+      background: #0d1117;
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: #58a6ff;
+    }
+
+    /* Info box */
+    .info-box {
+      background: #21262d;
+      border-left: 3px solid #58a6ff;
+      padding: 12px;
+      margin-bottom: 15px;
+      font-size: 0.85rem;
+      border-radius: 0 6px 6px 0;
+    }
+
+    .info-box code {
+      background: #0d1117;
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: #d2a8ff;
+    }
+  </style>
+</head>
+<body>
+  <h1>mrmd-js Test Playground</h1>
+
+  <div class="tabs">
+    <button class="tab active" onclick="showTab('basic')">Basic Execution</button>
+    <button class="tab" onclick="showTab('scopes')">Multiple Scopes</button>
+    <button class="tab" onclick="showTab('main')">Main Context</button>
+    <button class="tab" onclick="showTab('artifacts')">Visible Artifacts</button>
+  </div>
+
+  <!-- Tab 1: Basic Execution -->
+  <div id="tab-basic" class="tab-content active">
+    <div class="container">
+      <div class="main">
+        <div class="cell">
+          <div class="cell-header">
+            <span>Cell 1 <span class="scope-badge">default</span></span>
+            <button onclick="runCell('basic', 0)">Run</button>
+          </div>
+          <textarea id="basic-cell-0">// Define some variables
+const greeting = "Hello, mrmd-js!";
+const numbers = [1, 2, 3, 4, 5];
+const sum = numbers.reduce((a, b) => a + b, 0);
+
+console.log(greeting);
+console.log("Sum:", sum);
+
+({ greeting, sum });</textarea>
+          <div class="output" id="basic-output-0"></div>
+        </div>
+
+        <div class="cell">
+          <div class="cell-header">
+            <span>Cell 2 <span class="scope-badge">default</span></span>
+            <button onclick="runCell('basic', 1)">Run</button>
+          </div>
+          <textarea id="basic-cell-1">// Variables persist across cells!
+console.log("Greeting from Cell 1:", greeting);
+
+const doubled = numbers.map(n => n * 2);
+console.log("Doubled:", doubled);
+
+// Top-level await works
+await new Promise(r => setTimeout(r, 100));
+console.log("Async complete!");
+
+doubled;</textarea>
+          <div class="output" id="basic-output-1"></div>
+        </div>
+
+        <div style="display: flex; gap: 10px;">
+          <button onclick="runAllCells('basic', 2)">Run All</button>
+          <button class="danger" onclick="resetScope('basic')">Reset</button>
+        </div>
+      </div>
+
+      <div class="sidebar">
+        <div class="panel">
+          <div class="panel-header">Variables (default scope)</div>
+          <div class="panel-content" id="basic-variables">
+            <div class="empty">Run some code to see variables</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab 2: Multiple Scopes -->
+  <div id="tab-scopes" class="tab-content">
+    <div class="info-box">
+      Each scope is an <strong>isolated execution environment</strong>. Variables defined in one scope are not visible in another.
+      Use <code>runtime.scope('name')</code> to get or create a scope.
+    </div>
+
+    <div class="container">
+      <div class="main">
+        <div class="cell">
+          <div class="cell-header">
+            <span>Cell A <span class="scope-badge" style="background: #7ee787;">scope-A</span></span>
+            <button onclick="runCell('scopes', 0, 'scope-A')">Run</button>
+          </div>
+          <textarea id="scopes-cell-0">// This runs in scope-A
+const message = "I'm in Scope A!";
+const data = { x: 10, y: 20 };
+console.log(message);
+data;</textarea>
+          <div class="output" id="scopes-output-0"></div>
+        </div>
+
+        <div class="cell">
+          <div class="cell-header">
+            <span>Cell B <span class="scope-badge" style="background: #d2a8ff;">scope-B</span></span>
+            <button onclick="runCell('scopes', 1, 'scope-B')">Run</button>
+          </div>
+          <textarea id="scopes-cell-1">// This runs in scope-B (separate from A)
+const message = "I'm in Scope B!";
+const data = { a: 100, b: 200 };
+console.log(message);
+
+// Try to access scope-A's variable (will fail)
+try {
+  console.log("scope-A x:", x); // ReferenceError
+} catch (e) {
+  console.log("Cannot access scope-A's 'x' - scopes are isolated!");
+}
+
+data;</textarea>
+          <div class="output" id="scopes-output-1"></div>
+        </div>
+
+        <div class="cell">
+          <div class="cell-header">
+            <span>Cell C <span class="scope-badge" style="background: #7ee787;">scope-A</span></span>
+            <button onclick="runCell('scopes', 2, 'scope-A')">Run</button>
+          </div>
+          <textarea id="scopes-cell-2">// Back in scope-A - variables still here!
+console.log("message:", message);
+console.log("data:", data);
+data.z = 30; // Modify it
+data;</textarea>
+          <div class="output" id="scopes-output-2"></div>
+        </div>
+
+        <div style="display: flex; gap: 10px;">
+          <button onclick="runAllCells('scopes', 3)">Run All</button>
+          <button class="secondary" onclick="resetScope('scopes', 'scope-A')">Reset A</button>
+          <button class="secondary" onclick="resetScope('scopes', 'scope-B')">Reset B</button>
+        </div>
+      </div>
+
+      <div class="sidebar">
+        <div class="panel">
+          <div class="panel-header">Scope A Variables</div>
+          <div class="panel-content" id="scopes-variables-A">
+            <div class="empty">Run scope-A code first</div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-header">Scope B Variables</div>
+          <div class="panel-content" id="scopes-variables-B">
+            <div class="empty">Run scope-B code first</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab 3: Main Context -->
+  <div id="tab-main" class="tab-content">
+    <div class="info-box">
+      <strong>Main Context</strong> executes code in the actual page's window, giving access to the page's DOM and variables.
+      Use <code>runtime.executeInMain(code)</code>. <span style="color: #f85149;">⚠️ Can modify the page!</span>
+    </div>
+
+    <div class="container">
+      <div class="main">
+        <div class="cell">
+          <div class="cell-header">
+            <span>Main Context Cell <span class="scope-badge main">main</span></span>
+            <button onclick="runMainCell(0)">Run</button>
+          </div>
+          <textarea id="main-cell-0">// Access the real page!
+console.log("Document title:", document.title);
+console.log("Body bg:", document.body.style.background);
+console.log("Number of elements:", document.querySelectorAll('*').length);
+
+// Access page's JavaScript
+console.log("runtime object exists:", typeof runtime !== 'undefined');
+
+"Page access works!";</textarea>
+          <div class="output" id="main-output-0"></div>
+        </div>
+
+        <div class="cell">
+          <div class="cell-header">
+            <span>Modify Page <span class="scope-badge main">main</span></span>
+            <button onclick="runMainCell(1)">Run</button>
+          </div>
+          <textarea id="main-cell-1">// Actually modify the page
+const statusBar = document.querySelector('.status-bar');
+if (statusBar) {
+  statusBar.innerHTML = '<strong>Modified by main context!</strong> 🎉';
+}
+
+"Page modified!";</textarea>
+          <div class="output" id="main-output-1"></div>
+        </div>
+
+        <div style="display: flex; gap: 10px; margin-top: 10px;">
+          <button onclick="location.reload()">Reload Page (reset changes)</button>
+        </div>
+      </div>
+
+      <div class="sidebar">
+        <div class="panel">
+          <div class="panel-header">Main Context Info</div>
+          <div class="panel-content">
+            <p style="font-size: 0.85rem; color: #8b949e;">
+              Main context gives access to:
+            </p>
+            <ul style="font-size: 0.8rem; color: #c9d1d9; padding-left: 20px; margin-top: 8px;">
+              <li>document / DOM</li>
+              <li>window object</li>
+              <li>Page's JavaScript</li>
+              <li>localStorage</li>
+              <li>All page state</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab 4: Visible Artifacts -->
+  <div id="tab-artifacts" class="tab-content">
+    <div class="info-box">
+      <strong>Artifacts</strong> are visible iframes that code can render into.
+      Use <code>runtime.createArtifact('name', targetElement)</code> to create one.
+      Each artifact is isolated and can display HTML, Canvas, or any web content.
+    </div>
+
+    <div class="main" style="max-width: 800px;">
+      <div class="cell">
+        <div class="cell-header">
+          <span>Render to Artifact 1</span>
+          <button onclick="runArtifact(0)">Run</button>
+        </div>
+        <textarea id="artifact-cell-0">// Render HTML into the artifact
+document.body.innerHTML = `
+  <div style="padding: 20px; font-family: system-ui;">
+    <h1 style="color: #58a6ff;">Hello from Artifact 1!</h1>
+    <p>This is rendered inside an isolated iframe.</p>
+    <button onclick="alert('Clicked inside artifact!')">
+      Click me!
+    </button>
+  </div>
+`;
+
+"Rendered to artifact-1";</textarea>
+        <div class="output" id="artifact-output-0"></div>
+      </div>
+
+      <div class="cell">
+        <div class="cell-header">
+          <span>Render to Artifact 2</span>
+          <button onclick="runArtifact(1)">Run</button>
+        </div>
+        <textarea id="artifact-cell-1">// Draw on a canvas
+const canvas = document.createElement('canvas');
+canvas.width = 300;
+canvas.height = 180;
+document.body.appendChild(canvas);
+document.body.style.margin = '10px';
+
+const ctx = canvas.getContext('2d');
+
+// Draw gradient background
+const gradient = ctx.createLinearGradient(0, 0, 300, 180);
+gradient.addColorStop(0, '#667eea');
+gradient.addColorStop(1, '#764ba2');
+ctx.fillStyle = gradient;
+ctx.fillRect(0, 0, 300, 180);
+
+// Draw some circles
+for (let i = 0; i < 20; i++) {
+  ctx.beginPath();
+  ctx.arc(
+    Math.random() * 300,
+    Math.random() * 180,
+    Math.random() * 30 + 10,
+    0, Math.PI * 2
+  );
+  ctx.fillStyle = `rgba(255,255,255,${Math.random() * 0.5})`;
+  ctx.fill();
+}
+
+// Add text
+ctx.font = 'bold 24px system-ui';
+ctx.fillStyle = 'white';
+ctx.textAlign = 'center';
+ctx.fillText('Canvas in Artifact!', 150, 100);
+
+"Drew to canvas";</textarea>
+        <div class="output" id="artifact-output-1"></div>
+      </div>
+
+      <h2>Artifacts (visible iframes):</h2>
+      <div class="artifacts-grid">
+        <div class="artifact">
+          <div class="artifact-header">
+            <span class="artifact-name">artifact-1</span>
+            <button class="secondary" onclick="resetArtifact(0)">Reset</button>
+          </div>
+          <div id="artifact-container-0" class="artifact-container"></div>
+        </div>
+        <div class="artifact">
+          <div class="artifact-header">
+            <span class="artifact-name">artifact-2</span>
+            <button class="secondary" onclick="resetArtifact(1)">Reset</button>
+          </div>
+          <div id="artifact-container-1" class="artifact-container"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="status-bar">
+    <strong>Status:</strong> <span id="status">Loading mrmd-js...</span>
+  </div>
+
+  <script type="module">
+    import { JavaScriptRuntime } from '../dist/index.js';
+
+    // Create runtime
+    const runtime = new JavaScriptRuntime();
+    window.runtime = runtime; // For debugging and main context access
+
+    // Artifacts
+    const artifacts = [];
+
+    document.getElementById('status').innerHTML =
+      'Ready! <code>runtime</code> available in console.';
+
+    // ===========================================================================
+    // Tab switching
+    // ===========================================================================
+
+    window.showTab = function(tabId) {
+      // Hide all tabs
+      document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+
+      // Show selected tab
+      document.getElementById(`tab-${tabId}`).classList.add('active');
+      event.target.classList.add('active');
+
+      // Initialize artifacts when switching to that tab
+      if (tabId === 'artifacts') {
+        initArtifacts();
+      }
+    };
+
+    // ===========================================================================
+    // Basic execution (default scope)
+    // ===========================================================================
+
+    window.runCell = async function(tab, index, scopeName = null) {
+      const textarea = document.getElementById(`${tab}-cell-${index}`);
+      const output = document.getElementById(`${tab}-output-${index}`);
+      const code = textarea.value;
+
+      output.className = 'output';
+      output.textContent = 'Running...';
+
+      try {
+        let result;
+        if (scopeName) {
+          // Use named scope
+          result = await runtime.scope(scopeName).execute(code);
+        } else {
+          // Use default scope
+          result = await runtime.execute(code);
+        }
+
+        renderOutput(output, result);
+        updateVariables(tab, scopeName);
+
+      } catch (err) {
+        output.className = 'output error';
+        output.textContent = `Error: ${err.message}`;
+      }
+    };
+
+    window.runAllCells = async function(tab, count) {
+      for (let i = 0; i < count; i++) {
+        const scopeName = tab === 'scopes'
+          ? (i === 1 ? 'scope-B' : 'scope-A')
+          : null;
+        await runCell(tab, i, scopeName);
+      }
+    };
+
+    window.resetScope = function(tab, scopeName = null) {
+      if (scopeName) {
+        runtime.resetScope(scopeName);
+      } else {
+        runtime.reset();
+      }
+      updateVariables(tab, scopeName);
+
+      // Clear outputs
+      const count = tab === 'scopes' ? 3 : 2;
+      for (let i = 0; i < count; i++) {
+        const output = document.getElementById(`${tab}-output-${i}`);
+        if (output) output.innerHTML = '<span class="empty">Reset</span>';
+      }
+    };
+
+    // ===========================================================================
+    // Main context execution
+    // ===========================================================================
+
+    window.runMainCell = async function(index) {
+      const textarea = document.getElementById(`main-cell-${index}`);
+      const output = document.getElementById(`main-output-${index}`);
+      const code = textarea.value;
+
+      output.className = 'output';
+      output.textContent = 'Running in main context...';
+
+      try {
+        const result = await runtime.executeInMain(code);
+        renderOutput(output, result);
+      } catch (err) {
+        output.className = 'output error';
+        output.textContent = `Error: ${err.message}`;
+      }
+    };
+
+    // ===========================================================================
+    // Artifacts
+    // ===========================================================================
+
+    function initArtifacts() {
+      for (let i = 0; i < 2; i++) {
+        if (!artifacts[i]) {
+          const container = document.getElementById(`artifact-container-${i}`);
+          artifacts[i] = runtime.createArtifact(`artifact-${i + 1}`, container, {
+            styles: { width: '100%', height: '100%' }
+          });
+        }
+      }
+    }
+
+    window.runArtifact = async function(index) {
+      initArtifacts();
+
+      const textarea = document.getElementById(`artifact-cell-${index}`);
+      const output = document.getElementById(`artifact-output-${index}`);
+      const code = textarea.value;
+
+      output.className = 'output';
+      output.textContent = 'Rendering...';
+
+      try {
+        const result = await artifacts[index].execute(code);
+        renderOutput(output, result);
+      } catch (err) {
+        output.className = 'output error';
+        output.textContent = `Error: ${err.message}`;
+      }
+    };
+
+    window.resetArtifact = function(index) {
+      const container = document.getElementById(`artifact-container-${index}`);
+      // Destroy and recreate
+      if (artifacts[index]) {
+        runtime.destroyScope(`artifact-${index + 1}`);
+        artifacts[index] = runtime.createArtifact(`artifact-${index + 1}`, container, {
+          styles: { width: '100%', height: '100%' }
+        });
+      }
+      const output = document.getElementById(`artifact-output-${index}`);
+      if (output) output.innerHTML = '<span class="empty">Reset</span>';
+    };
+
+    // ===========================================================================
+    // Helpers
+    // ===========================================================================
+
+    function renderOutput(output, result) {
+      let html = '';
+
+      if (result.stdout) {
+        html += escapeHtml(result.stdout);
+      }
+
+      if (result.stderr) {
+        html += `<span style="color: #f85149;">${escapeHtml(result.stderr)}</span>`;
+      }
+
+      if (result.resultString !== undefined && result.resultString !== 'undefined') {
+        html += `\n<span class="result">→ ${escapeHtml(result.resultString)}</span>`;
+      }
+
+      if (result.duration !== undefined) {
+        html += `\n<span class="duration">⏱ ${result.duration.toFixed(2)}ms</span>`;
+      }
+
+      output.innerHTML = html || '<span class="empty">No output</span>';
+      output.className = result.success ? 'output success' : 'output error';
+    }
+
+    function updateVariables(tab, scopeName = null) {
+      let panelId;
+      let vars;
+
+      if (tab === 'scopes' && scopeName) {
+        panelId = `scopes-variables-${scopeName.split('-')[1].toUpperCase()}`;
+        vars = runtime.scope(scopeName).variables();
+      } else if (tab === 'basic') {
+        panelId = 'basic-variables';
+        vars = runtime.variables();
+      } else {
+        return;
+      }
+
+      const panel = document.getElementById(panelId);
+      if (!panel) return;
+
+      if (!vars || vars.length === 0) {
+        panel.innerHTML = '<div class="empty">No variables</div>';
+        return;
+      }
+
+      panel.innerHTML = vars.map(v => `
+        <div class="variable">
+          <div>
+            <span class="variable-name">${escapeHtml(v.name)}</span>
+            <span class="variable-type">${escapeHtml(v.type)}</span>
+          </div>
+          <div class="variable-value" title="${escapeHtml(v.value)}">${escapeHtml(v.value)}</div>
+        </div>
+      `).join('');
+    }
+
+    function escapeHtml(str) {
+      if (str === undefined || str === null) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+  </script>
+</body>
+</html>
