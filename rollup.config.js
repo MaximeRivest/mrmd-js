@@ -1,36 +1,35 @@
-import typescript from '@rollup/plugin-typescript';
-import dts from 'rollup-plugin-dts';
+import { nodeResolve } from '@rollup/plugin-node-resolve';
 
 export default [
-  // Main bundle (ESM + CJS)
+  // ESM bundle
   {
-    input: 'src/index.ts',
-    output: [
-      {
-        file: 'dist/index.js',
-        format: 'esm',
-        sourcemap: true,
-      },
-      {
-        file: 'dist/index.cjs',
-        format: 'cjs',
-        sourcemap: true,
-      },
-    ],
-    plugins: [
-      typescript({
-        tsconfig: './tsconfig.json',
-        declaration: false,
-      }),
-    ],
-  },
-  // Type declarations
-  {
-    input: 'src/index.ts',
+    input: 'src/index.js',
     output: {
-      file: 'dist/index.d.ts',
+      file: 'dist/index.js',
       format: 'esm',
+      sourcemap: true,
     },
-    plugins: [dts()],
+    plugins: [nodeResolve()],
+  },
+  // CJS bundle
+  {
+    input: 'src/index.js',
+    output: {
+      file: 'dist/index.cjs',
+      format: 'cjs',
+      sourcemap: true,
+    },
+    plugins: [nodeResolve()],
+  },
+  // IIFE bundle for browser <script> tags
+  {
+    input: 'src/index.js',
+    output: {
+      file: 'dist/mrmd-js.iife.js',
+      format: 'iife',
+      name: 'mrmdJs',
+      sourcemap: true,
+    },
+    plugins: [nodeResolve()],
   },
 ];

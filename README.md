@@ -1,16 +1,17 @@
 # mrmd-js
 
-A browser-side JavaScript runtime for notebook-style code execution with LSP-like features, multi-scope isolation, and visible artifact rendering.
+MRP-compliant browser JavaScript runtime for notebook-style code execution with LSP-like features, multi-session isolation, and rich output rendering.
 
-## Goals
+## Features
 
-**mrmd-js** provides the execution layer for JavaScript in computational notebooks. It aims to:
-
-1. **Notebook-style execution** - Variables persist across cell executions
-2. **IDE-like features** - Runtime-based completions, hover info, variable explorer
-3. **Multi-scope isolation** - Run code in separate, isolated environments
-4. **Artifact rendering** - Display visualizations in visible iframes
-5. **Page integration** - Optionally access the host page's DOM and JavaScript
+- **Notebook-style execution** - Variables persist across cell executions
+- **MRP Protocol compliance** - Implements the MRMD Runtime Protocol
+- **Multi-language support** - JavaScript, HTML, and CSS executors
+- **LSP-like features** - Runtime-aware completions, hover info, variable inspection
+- **Session isolation** - Multiple isolated execution contexts (iframe or main window)
+- **Rich output** - Display data with HTML, CSS, images, and more
+- **Streaming execution** - Real-time output with async generators
+- **Code analysis** - Statement completeness checking and formatting
 
 ## Installation
 
@@ -20,335 +21,444 @@ npm install mrmd-js
 
 ## Quick Start
 
-### Basic Usage
+### Using MrpRuntime (Recommended)
 
-```typescript
-import { JavaScriptClient } from 'mrmd-js';
+```javascript
+import { MrpRuntime } from 'mrmd-js';
 
-const client = new JavaScriptClient();
+const runtime = new MrpRuntime();
 
-// Cell 1: Define variables
-await client.execute(`
+// Create a session
+const session = runtime.createSession({ language: 'javascript' });
+
+// Execute code - variables persist across executions
+await session.execute(`
   const data = [1, 2, 3, 4, 5];
   const sum = data.reduce((a, b) => a + b, 0);
   console.log("Sum:", sum);
 `);
 // Output: Sum: 15
 
-// Cell 2: Variables persist!
-await client.execute(`
-  console.log("Data from Cell 1:", data);
+// Variables persist!
+const result = await session.execute(`
   const doubled = data.map(n => n * 2);
+  doubled
 `);
-// Output: Data from Cell 1: [1, 2, 3, 4, 5]
+console.log(result.resultString); // "[2, 4, 6, 8, 10]"
 
 // Get completions
-client.complete('data.', 5);
-// → [{ label: 'map', type: 'method' }, { label: 'filter', ... }, ...]
+const completions = session.complete('data.', 5);
+// → { matches: [{ label: 'map', kind: 'function' }, ...] }
 
 // Get hover info
-client.hover('sum', 0);
+const hover = session.hover('sum', 1);
 // → { found: true, name: 'sum', type: 'number', value: '15' }
 
 // List all variables
-client.variables();
-// → [{ name: 'data', type: 'array', value: '[5 items]' }, ...]
+const vars = session.listVariables();
+// → [{ name: 'data', type: 'Array', expandable: true }, ...]
+
+// Clean up
+runtime.destroy();
 ```
 
-### Multi-Scope Runtime
+### Using Session Directly
 
-```typescript
-import { JavaScriptRuntime } from 'mrmd-js';
+```javascript
+import { SessionManager, createSessionManager } from 'mrmd-js';
 
-const runtime = new JavaScriptRuntime();
+const manager = createSessionManager();
 
-// Create isolated scopes
-const dataScope = runtime.scope('data-processing');
-const vizScope = runtime.scope('visualization');
+// Create isolated sessions
+const dataSession = manager.create({ id: 'data', language: 'javascript' });
+const vizSession = manager.create({ id: 'viz', language: 'javascript' });
 
-// Each scope has its own variables
-await dataScope.execute('const x = 100');
-await vizScope.execute('const x = 200');
+// Each session has its own scope
+await dataSession.execute('const x = 100');
+await vizSession.execute('const x = 200');
 
-dataScope.getVariable('x'); // 100
-vizScope.getVariable('x');  // 200 - completely isolated!
+dataSession.listVariables(); // x = 100
+vizSession.listVariables();  // x = 200 - completely isolated!
+
+// Clean up
+manager.destroyAll();
 ```
-
----
-
-## Core Concepts
-
-### Scopes
-
-A **scope** is an isolated JavaScript execution environment. Variables defined in one scope are not visible in another.
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        JavaScriptRuntime                         │
-├─────────────────┬─────────────────┬─────────────────────────────┤
-│  Default Scope  │    scope-A      │         scope-B             │
-│  (hidden iframe)│  (hidden iframe)│      (hidden iframe)        │
-├─────────────────┼─────────────────┼─────────────────────────────┤
-│ const x = 1     │ const x = 100   │ const x = 999               │
-│ const y = 2     │ const data = [] │ const user = {}             │
-├─────────────────┼─────────────────┼─────────────────────────────┤
-│ Isolated!       │ Isolated!       │ Isolated!                   │
-└─────────────────┴─────────────────┴─────────────────────────────┘
-```
-
-### Main Context
-
-The **main context** executes code directly in the host page's `window`, giving access to the page's DOM, variables, and state.
-
-```typescript
-// Access the actual page
-await runtime.executeInMain(`
-  console.log(document.title);           // Real page title
-  document.body.style.background = 'red'; // Modifies the page!
-`);
-```
-
-### Artifacts
-
-An **artifact** is a visible iframe that code can render into. Perfect for visualizations, interactive widgets, or sandboxed UI components.
-
-```typescript
-const chart = runtime.createArtifact('my-chart', containerElement);
-
-await chart.execute(`
-  const canvas = document.createElement('canvas');
-  document.body.appendChild(canvas);
-  // Draw on canvas...
-`);
-```
-
----
 
 ## API Reference
 
-### `JavaScriptClient`
+### MrpRuntime
 
-The core client for single-scope execution and LSP features.
+The main entry point implementing the MRP protocol.
 
-```typescript
-import { JavaScriptClient } from 'mrmd-js';
+```javascript
+import { MrpRuntime, createRuntime } from 'mrmd-js';
 
-const client = new JavaScriptClient(options?: ClientOptions);
-```
-
-#### Options
-
-```typescript
-interface ClientOptions {
-  sandbox?: {
-    // Execute in main window instead of iframe (dangerous!)
-    useMainContext?: boolean;
-
-    // Render iframe into this element (makes it visible)
-    targetElement?: HTMLElement;
-
-    // Styles for visible iframe
-    iframeStyles?: Partial<CSSStyleDeclaration>;
-
-    // Allow code to access main document
-    allowMainDocumentAccess?: boolean;
-
-    // Custom timeout for execution (default: 30000ms)
-    timeout?: number;
-  };
-}
-```
-
-#### Execution Methods
-
-| Method | Description | Returns |
-|--------|-------------|---------|
-| `execute(code)` | Execute code synchronously | `Promise<ExecutionResult>` |
-| `executeStreaming(code, onChunk)` | Execute with streaming output | `Promise<ExecutionResult>` |
-
-```typescript
-// Basic execution
-const result = await client.execute('1 + 2');
-console.log(result.result); // 3
-
-// Streaming execution
-await client.executeStreaming(
-  'for (let i = 0; i < 3; i++) console.log(i)',
-  (chunk, accumulated, done) => {
-    console.log('Output so far:', accumulated);
-  }
-);
-```
-
-#### LSP Methods
-
-| Method | Description | Returns |
-|--------|-------------|---------|
-| `complete(code, cursorPos)` | Get completions at cursor | `CompletionResult` |
-| `hover(code, cursorPos)` | Get hover info at cursor | `HoverResult` |
-| `inspect(path)` | Inspect object by path | `InspectResult` |
-| `variables()` | List all variables | `VariableInfo[]` |
-| `expandVariable(path)` | Get children of object | `VariableInfo[]` |
-
-```typescript
-// Completions
-const completions = client.complete('data.fi', 7);
-// { items: [{ label: 'filter', type: 'method', ... }, ...], from: 5, to: 7 }
-
-// Hover
-const hover = client.hover('myArray', 3);
-// { found: true, name: 'myArray', type: 'array', value: '[3 items]' }
-
-// Variables
-const vars = client.variables();
-// [{ name: 'x', type: 'number', value: '42' }, ...]
-
-// Expand nested object
-const children = client.expandVariable('user.profile');
-// [{ name: 'name', type: 'string', value: '"Alice"' }, ...]
-```
-
-#### Scope Methods
-
-| Method | Description | Returns |
-|--------|-------------|---------|
-| `getScope()` | Get all variables as object | `Record<string, unknown>` |
-| `getVariable(name)` | Get specific variable value | `unknown` |
-| `hasVariable(name)` | Check if variable exists | `boolean` |
-| `reset()` | Clear all variables | `void` |
-| `destroy()` | Clean up resources | `void` |
-
-#### Utility Methods
-
-| Method | Description | Returns |
-|--------|-------------|---------|
-| `isMainContext()` | Check if running in main window | `boolean` |
-| `getIframe()` | Get underlying iframe element | `HTMLIFrameElement \| null` |
-
----
-
-### `JavaScriptRuntime`
-
-Multi-scope runtime manager for complex applications.
-
-```typescript
-import { JavaScriptRuntime } from 'mrmd-js';
-
-const runtime = new JavaScriptRuntime(options?: SandboxOptions);
-```
-
-#### Default Scope Methods
-
-These operate on the default (unnamed) scope:
-
-| Method | Description |
-|--------|-------------|
-| `execute(code)` | Execute in default scope |
-| `executeStreaming(code, onChunk)` | Stream execute in default scope |
-| `complete(code, cursorPos)` | Completions from default scope |
-| `hover(code, cursorPos)` | Hover from default scope |
-| `variables()` | Variables from default scope |
-| `reset()` | Reset default scope |
-
-#### Named Scope Methods
-
-| Method | Description |
-|--------|-------------|
-| `scope(name, options?)` | Get or create named scope |
-| `hasScope(name)` | Check if scope exists |
-| `listScopes()` | List all scope names |
-| `destroyScope(name)` | Destroy a scope |
-| `resetScope(name)` | Reset a scope |
-
-```typescript
-// Create/get scope
-const myScope = runtime.scope('data-analysis');
-
-// Use scope directly
-await myScope.execute('const x = 1');
-myScope.variables(); // [{ name: 'x', ... }]
-
-// Or use helper methods
-runtime.completeInScope('data-analysis', 'x.', 2);
-runtime.variablesInScope('data-analysis');
-
-// List all scopes
-runtime.listScopes(); // ['data-analysis', 'visualization', ...]
-
-// See all variables across all scopes
-runtime.allVariables();
-// Map { 'default' => [...], 'data-analysis' => [...] }
-```
-
-#### Main Context Methods
-
-| Method | Description |
-|--------|-------------|
-| `executeInMain(code)` | Execute in host page's window |
-| `getMainClient()` | Get the main context client |
-
-```typescript
-// Execute in actual page
-await runtime.executeInMain('alert("Hello from mrmd-js!")');
-
-// Access main client for LSP
-const mainClient = runtime.getMainClient();
-mainClient.complete('document.query', 14);
-```
-
-#### Artifact Methods
-
-| Method | Description |
-|--------|-------------|
-| `createArtifact(name, element, options?)` | Create visible artifact |
-| `getArtifact(name)` | Get existing artifact |
-
-```typescript
-// Create visible artifact
-const viz = runtime.createArtifact('chart', document.getElementById('chart-container'), {
-  styles: { width: '100%', height: '400px', border: '1px solid #ccc' }
+const runtime = new MrpRuntime({
+  maxSessions: 10,                    // Max concurrent sessions
+  defaultIsolation: 'iframe',         // 'iframe' or 'main'
+  defaultAllowMainAccess: false,      // Allow main window access
 });
 
-// Render into it
-await viz.execute(`
-  document.body.innerHTML = '<h1>My Visualization</h1>';
-`);
-
-// Get existing artifact
-const existingViz = runtime.getArtifact('chart');
+// Or use factory function
+const runtime = createRuntime();
 ```
 
-#### Lifecycle Methods
+#### Capabilities
 
-| Method | Description |
-|--------|-------------|
-| `destroy()` | Destroy all scopes and clean up |
-| `resetAll()` | Reset all scopes |
+```javascript
+const caps = runtime.getCapabilities();
+// {
+//   runtime: 'mrmd-js',
+//   version: '2.0.0',
+//   languages: ['javascript', 'html', 'css'],
+//   features: { execute: true, complete: true, ... },
+//   maxSessions: 10,
+//   environment: { userAgent: '...', platform: '...' }
+// }
+```
 
----
+#### Session Management
 
-### `JavaScriptExecutor`
+```javascript
+// Create session
+const session = runtime.createSession({
+  id: 'my-session',           // Optional ID
+  language: 'javascript',     // Language
+  isolation: 'iframe',        // 'iframe' or 'main'
+  allowMainAccess: false,     // Access main window from iframe
+});
 
-Implements the `Executor` interface for integration with mrmd-editor.
+// Get/list sessions
+runtime.getSession('my-session');
+runtime.listSessions();
 
-```typescript
-import { JavaScriptExecutor } from 'mrmd-js';
+// Get or create
+runtime.getOrCreateSession('my-session', { language: 'javascript' });
 
-const executor = new JavaScriptExecutor();
+// Reset/destroy
+runtime.resetSession('my-session');
+runtime.destroySession('my-session');
+runtime.destroy(); // Destroy all
+```
+
+#### Convenience Methods
+
+```javascript
+// Execute in default session
+const result = await runtime.execute('1 + 2');
+const stream = runtime.executeStream('console.log("hi")');
+
+// LSP features
+runtime.complete('arr.', 4);
+runtime.hover('myVar', 3);
+runtime.inspect('obj', 2, { detail: 1 });
+runtime.listVariables();
+runtime.getVariable('myVar');
+
+// Analysis
+runtime.isComplete('const x = {');  // { status: 'incomplete', indent: '  ' }
+await runtime.format('const x=1');  // { formatted: 'const x = 1;\n', changed: true }
+```
+
+### Session
+
+Individual execution context with full LSP support.
+
+```javascript
+// Get session info
+session.getInfo();
+// { id: '...', language: 'javascript', executionCount: 5, ... }
+
+// Execute code
+const result = await session.execute('const x = 1 + 2; x');
+// {
+//   success: true,
+//   stdout: '',
+//   stderr: '',
+//   result: 3,
+//   resultString: '3',
+//   duration: 5,
+//   displayData: []
+// }
+
+// Streaming execution
+for await (const event of session.executeStream('console.log("hi")')) {
+  if (event.type === 'stdout') console.log(event.text);
+  if (event.type === 'result') console.log(event.result);
+}
+
+// Interrupt execution
+session.interrupt();
+
+// Reset session (clear all variables)
+session.reset();
+```
+
+#### LSP Features
+
+```javascript
+// Completions
+const completions = session.complete('data.fi', 7);
+// {
+//   matches: [{ label: 'filter', kind: 'function', valuePreview: 'ƒ' }, ...],
+//   cursorStart: 5,
+//   cursorEnd: 7
+// }
+
+// Hover
+const hover = session.hover('myArray', 3);
+// { found: true, name: 'myArray', type: 'Array', value: '[1, 2, 3]' }
+
+// Inspect (detailed)
+const info = session.inspect('user', 2, { detail: 1 });
+// { found: true, name: 'user', type: 'Object', children: [...] }
+
+// Variables
+const vars = session.listVariables({ types: ['Object', 'Array'] });
+// [{ name: 'user', type: 'Object', expandable: true, size: '3 keys' }, ...]
+
+const detail = session.getVariable('user', { depth: 2 });
+// { name: 'user', type: 'Object', children: [...], methods: [...] }
+```
+
+#### Analysis
+
+```javascript
+// Check statement completeness
+session.isComplete('const x = 1');   // { status: 'complete', indent: '' }
+session.isComplete('const x = {');   // { status: 'incomplete', indent: '  ' }
+session.isComplete('const const');   // { status: 'invalid', indent: '' }
+
+// Format code
+const formatted = await session.format('const x=1');
+// { formatted: 'const x = 1;\n', changed: true }
+```
+
+### Executors
+
+Built-in language executors.
+
+```javascript
+import {
+  ExecutorRegistry,
+  createDefaultExecutorRegistry,
+  JavaScriptExecutor,
+  HtmlExecutor,
+  CssExecutor,
+} from 'mrmd-js';
+
+// Default registry includes JS, HTML, CSS
+const registry = createDefaultExecutorRegistry();
 
 // Check language support
-executor.supports('javascript'); // true
-executor.supports('js');         // true
-executor.supports('typescript'); // true (runs as JS)
+registry.supports('javascript');  // true
+registry.supports('js');          // true (alias)
+registry.supports('html');        // true
 
-// Execute
-const result = await executor.execute('console.log("hi")', 'javascript');
+// Get executor
+const jsExecutor = registry.get('javascript');
 
-// Access underlying client
-const client = executor.getClient();
+// Register custom executor
+registry.register('python', myPythonExecutor);
+registry.registerAlias('py', 'python');
 ```
 
----
+#### JavaScript Executor
+
+Executes JavaScript with variable persistence and async support.
+
+```javascript
+import { JavaScriptExecutor, createJavaScriptExecutor } from 'mrmd-js';
+
+const executor = createJavaScriptExecutor();
+
+// Execute with context
+const result = await executor.execute(code, context, {
+  timeout: 30000,
+  storeVariables: true,
+});
+```
+
+#### HTML Executor
+
+Executes HTML, extracting and running scripts.
+
+```javascript
+import { HtmlExecutor, createHtmlExecutor } from 'mrmd-js';
+
+const executor = createHtmlExecutor();
+
+const result = await executor.execute(`
+  <div id="app">Hello</div>
+  <script>
+    document.getElementById('app').textContent = 'World';
+  </script>
+`, context);
+
+// Returns displayData with text/html
+```
+
+#### CSS Executor
+
+Applies CSS styles with optional scoping.
+
+```javascript
+import { CssExecutor, createCssExecutor } from 'mrmd-js';
+
+const executor = createCssExecutor();
+
+const result = await executor.execute(`
+  .container { background: blue; }
+`, context, { scope: '.my-scope' });
+
+// Returns displayData with text/css
+```
+
+### Client Utilities
+
+Utilities for rendering execution output.
+
+#### HtmlRenderer
+
+Render HTML displayData with script execution and isolation modes.
+
+```javascript
+import { HtmlRenderer, createHtmlRenderer } from 'mrmd-js';
+
+const renderer = createHtmlRenderer();
+
+// Render modes: 'direct', 'shadow', 'scoped'
+renderer.render('<p>Hello</p>', container, { mode: 'direct' });
+
+// Shadow DOM isolation
+renderer.render('<p>Isolated</p>', container, { mode: 'shadow' });
+
+// CSS scoped (prefixes selectors)
+renderer.render('<style>.foo { color: red; }</style>', container, {
+  mode: 'scoped',
+  scopeClass: 'my-scope',
+});
+
+// Render displayData
+renderer.renderDisplayData(displayData, container);
+```
+
+#### CssApplicator
+
+Manage CSS styles in the document.
+
+```javascript
+import { CssApplicator, createCssApplicator } from 'mrmd-js';
+
+const applicator = createCssApplicator();
+
+// Apply CSS
+const { id, element } = applicator.apply('.foo { color: red; }', {
+  id: 'my-styles',
+  scope: '.my-scope',  // Prefix selectors
+});
+
+// Update existing
+applicator.apply('.foo { color: blue; }', { id: 'my-styles' });
+
+// Remove
+applicator.remove('my-styles');
+applicator.clear();
+```
+
+#### AnsiRenderer
+
+Convert ANSI escape codes to HTML.
+
+```javascript
+import { AnsiRenderer, ansiToHtml, stripAnsi } from 'mrmd-js';
+
+// Convert to HTML
+const html = ansiToHtml('\x1b[31mRed text\x1b[0m');
+// '<span style="color:#cc0000">Red text</span>'
+
+// Strip ANSI codes
+const plain = stripAnsi('\x1b[1mBold\x1b[0m');
+// 'Bold'
+
+// Renderer instance
+const renderer = new AnsiRenderer({ escapeHtml: true });
+renderer.renderTo(ansiText, container);
+```
+
+### Analysis Utilities
+
+Standalone code analysis functions.
+
+```javascript
+import {
+  isComplete,
+  getSuggestedIndent,
+  formatCode,
+  basicFormat,
+  formatHtml,
+  formatCss,
+  setPrettier,
+} from 'mrmd-js';
+
+// Statement completeness
+isComplete('const x = 1');  // { status: 'complete', indent: '' }
+isComplete('function f() {');  // { status: 'incomplete', indent: '  ' }
+
+// Suggested indent for continuation
+getSuggestedIndent('if (true) {');  // '  '
+
+// Format code (async, uses Prettier if available)
+await formatCode('const x=1', { tabWidth: 2 });
+
+// Basic formatting (sync, no dependencies)
+basicFormat('const x=1');
+
+// Inject Prettier for better formatting
+import * as prettier from 'prettier';
+setPrettier(prettier);
+```
+
+### LSP Utilities
+
+Low-level LSP helpers for custom integrations.
+
+```javascript
+import {
+  // Parsing
+  parseIdentifierAtPosition,
+  parseCompletionContext,
+  getStringOrCommentContext,
+  splitObjectPath,
+  isKeyword,
+
+  // Formatting
+  formatValue,
+  formatValueShort,
+  getTypeName,
+  isExpandable,
+  getFunctionSignature,
+
+  // Completions/Hover/Inspect
+  getCompletions,
+  getHoverInfo,
+  getInspectInfo,
+  listVariables,
+  expandVariable,
+} from 'mrmd-js';
+
+// Parse context at cursor
+const ctx = parseCompletionContext('obj.foo', 7);
+// { type: 'member', object: 'obj', prefix: 'foo' }
+
+// Format values for display
+formatValue({ a: 1, b: 2 });  // '{ a: 1, b: 2 }'
+formatValueShort(largeObject, 50);  // Truncated
+
+// Type utilities
+getTypeName([1, 2, 3]);  // 'Array'
+isExpandable({ a: 1 });  // true
+```
 
 ## Types
 
@@ -356,20 +466,27 @@ const client = executor.getClient();
 
 ```typescript
 interface ExecutionResult {
-  success: boolean;           // Did execution complete without error?
-  stdout: string;             // Captured console.log output
-  stderr: string;             // Captured console.error/warn output
-  result?: unknown;           // Return value of last expression
-  resultString?: string;      // String representation of result
-  error?: ExecutionError;     // Error details if failed
-  duration?: number;          // Execution time in milliseconds
-  displayData?: DisplayData[]; // Rich display outputs
+  success: boolean;              // Completed without error
+  stdout: string;                // Captured console.log output
+  stderr: string;                // Captured console.error/warn
+  result?: unknown;              // Return value
+  resultString?: string;         // String representation
+  error?: ExecutionError;        // Error details if failed
+  duration?: number;             // Execution time (ms)
+  displayData?: DisplayData[];   // Rich outputs
 }
 
 interface ExecutionError {
-  name: string;    // Error type (e.g., 'TypeError')
-  message: string; // Error message
-  stack?: string;  // Stack trace
+  name: string;      // Error type
+  message: string;   // Error message
+  stack?: string;    // Stack trace
+  line?: number;     // Line number
+  column?: number;   // Column number
+}
+
+interface DisplayData {
+  data: Record<string, string>;  // MIME type → content
+  metadata?: Record<string, unknown>;
 }
 ```
 
@@ -377,16 +494,19 @@ interface ExecutionError {
 
 ```typescript
 interface CompletionResult {
-  items: CompletionItem[];  // Completion suggestions
-  from: number;             // Start of text to replace
-  to: number;               // End of text to replace
+  matches: CompletionItem[];  // Suggestions
+  cursorStart: number;        // Replace from
+  cursorEnd: number;          // Replace to
+  source: 'runtime' | 'static';
 }
 
 interface CompletionItem {
-  label: string;           // Text to insert
-  type?: string;           // 'variable' | 'method' | 'property' | 'keyword' | 'class' | 'function'
-  detail?: string;         // Additional info (e.g., value preview)
-  documentation?: string;  // Full documentation
+  label: string;              // Text to insert
+  kind: string;               // 'function' | 'property' | 'variable' | ...
+  type?: string;              // Value type
+  valuePreview?: string;      // Current value preview
+  documentation?: string;     // Description
+  sortText?: string;          // Sort order
 }
 ```
 
@@ -394,11 +514,27 @@ interface CompletionItem {
 
 ```typescript
 interface HoverResult {
-  found: boolean;      // Was anything found at position?
-  name: string;        // Variable/property name
-  type: string;        // Type (e.g., 'number', 'array', 'function')
-  value?: string;      // Current value as string
-  signature?: string;  // Function signature if applicable
+  found: boolean;
+  name?: string;
+  type?: string;
+  value?: string;
+  signature?: string;  // For functions
+}
+```
+
+### InspectResult
+
+```typescript
+interface InspectResult {
+  found: boolean;
+  name?: string;
+  type?: string;
+  kind?: string;
+  value?: unknown;
+  signature?: string;
+  source?: string;
+  documentation?: string;
+  children?: ChildInfo[];
 }
 ```
 
@@ -406,266 +542,34 @@ interface HoverResult {
 
 ```typescript
 interface VariableInfo {
-  name: string;        // Variable name
-  type: string;        // Type
-  value: string;       // Value preview
-  size?: string;       // Size info (e.g., '5 items' for arrays)
-  expandable?: boolean; // Has children to expand?
+  name: string;
+  type: string;
+  value: string;
+  size?: string;           // '5 items', '3 keys'
+  expandable?: boolean;
+}
+
+interface VariableDetail extends VariableInfo {
+  children?: VariableInfo[];
+  methods?: MethodInfo[];
+  attributes?: AttributeInfo[];
 }
 ```
 
----
-
-## Examples
-
-### Example 1: Data Analysis Notebook
+### IsCompleteResult
 
 ```typescript
-import { JavaScriptClient } from 'mrmd-js';
-
-const client = new JavaScriptClient();
-
-// Cell 1: Load data
-await client.execute(`
-  const sales = [
-    { month: 'Jan', revenue: 1200 },
-    { month: 'Feb', revenue: 1800 },
-    { month: 'Mar', revenue: 2400 },
-  ];
-`);
-
-// Cell 2: Analysis
-await client.execute(`
-  const total = sales.reduce((sum, s) => sum + s.revenue, 0);
-  const average = total / sales.length;
-  console.log('Total Revenue:', total);
-  console.log('Average:', average.toFixed(2));
-`);
-// Output:
-// Total Revenue: 5400
-// Average: 1800.00
-
-// Cell 3: Variables persist
-const vars = client.variables();
-console.log(vars);
-// [
-//   { name: 'sales', type: 'array', value: '[3 items]' },
-//   { name: 'total', type: 'number', value: '5400' },
-//   { name: 'average', type: 'number', value: '1800' }
-// ]
-```
-
-### Example 2: Multiple Isolated Scopes
-
-```typescript
-import { JavaScriptRuntime } from 'mrmd-js';
-
-const runtime = new JavaScriptRuntime();
-
-// Data team's scope
-const dataScope = runtime.scope('data-team');
-await dataScope.execute(`
-  const API_KEY = 'data-team-secret-key';
-  const fetchData = async () => { /* ... */ };
-`);
-
-// Frontend team's scope - cannot see data team's variables
-const frontendScope = runtime.scope('frontend-team');
-await frontendScope.execute(`
-  // API_KEY is not defined here!
-  const API_KEY = 'frontend-public-key';
-  const renderUI = () => { /* ... */ };
-`);
-
-// Each scope has its own API_KEY
-dataScope.getVariable('API_KEY');     // 'data-team-secret-key'
-frontendScope.getVariable('API_KEY'); // 'frontend-public-key'
-```
-
-### Example 3: Interactive Visualization Artifact
-
-```typescript
-import { JavaScriptRuntime } from 'mrmd-js';
-
-const runtime = new JavaScriptRuntime();
-
-// Create visible artifact
-const chartContainer = document.getElementById('chart');
-const chart = runtime.createArtifact('sales-chart', chartContainer, {
-  styles: { width: '100%', height: '300px' }
-});
-
-// Render a chart
-await chart.execute(`
-  const canvas = document.createElement('canvas');
-  canvas.width = 400;
-  canvas.height = 200;
-  document.body.appendChild(canvas);
-
-  const ctx = canvas.getContext('2d');
-
-  // Draw bars
-  const data = [120, 180, 240, 200, 280];
-  const barWidth = 60;
-
-  data.forEach((value, i) => {
-    const height = value / 300 * 180;
-    ctx.fillStyle = '#58a6ff';
-    ctx.fillRect(i * (barWidth + 10) + 20, 180 - height, barWidth, height);
-  });
-`);
-```
-
-### Example 4: Page Automation with Main Context
-
-```typescript
-import { JavaScriptRuntime } from 'mrmd-js';
-
-const runtime = new JavaScriptRuntime();
-
-// Read page state
-const result = await runtime.executeInMain(`
-  ({
-    title: document.title,
-    url: location.href,
-    buttonCount: document.querySelectorAll('button').length
-  })
-`);
-console.log(result.result);
-// { title: 'My App', url: 'https://...', buttonCount: 5 }
-
-// Modify the page
-await runtime.executeInMain(`
-  const header = document.querySelector('h1');
-  if (header) {
-    header.style.color = 'red';
-    header.textContent = 'Modified by mrmd-js!';
-  }
-`);
-```
-
-### Example 5: Building a Variable Explorer
-
-```typescript
-import { JavaScriptClient } from 'mrmd-js';
-
-const client = new JavaScriptClient();
-
-// Execute some code
-await client.execute(`
-  const user = {
-    name: 'Alice',
-    profile: {
-      email: 'alice@example.com',
-      settings: { theme: 'dark', notifications: true }
-    }
-  };
-`);
-
-// Build tree view
-function renderVariables(vars: VariableInfo[], path = '') {
-  return vars.map(v => {
-    const fullPath = path ? `${path}.${v.name}` : v.name;
-    let html = `<div>${v.name}: ${v.type} = ${v.value}</div>`;
-
-    if (v.expandable) {
-      const children = client.expandVariable(fullPath);
-      html += `<div style="margin-left: 20px">${renderVariables(children, fullPath)}</div>`;
-    }
-
-    return html;
-  }).join('');
+interface IsCompleteResult {
+  status: 'complete' | 'incomplete' | 'invalid' | 'unknown';
+  indent: string;  // Suggested indent for continuation
 }
-
-const html = renderVariables(client.variables());
-// Renders:
-// user: object = {...}
-//   name: string = "Alice"
-//   profile: object = {...}
-//     email: string = "alice@example.com"
-//     settings: object = {...}
-//       theme: string = "dark"
-//       notifications: boolean = true
 ```
 
-### Example 6: Top-Level Await
+## Isolation Modes
 
-```typescript
-const client = new JavaScriptClient();
+### Iframe Isolation (Default)
 
-// Async code works at top level
-await client.execute(`
-  // Fetch data
-  const response = await fetch('https://api.example.com/data');
-  const data = await response.json();
-
-  // Process with delay
-  await new Promise(r => setTimeout(r, 1000));
-
-  console.log('Data loaded:', data.length, 'items');
-`);
-```
-
-### Example 7: Streaming Output
-
-```typescript
-const client = new JavaScriptClient();
-
-const output: string[] = [];
-
-await client.executeStreaming(
-  `
-  for (let i = 1; i <= 5; i++) {
-    console.log('Processing item', i);
-    await new Promise(r => setTimeout(r, 500));
-  }
-  console.log('Done!');
-  `,
-  (chunk, accumulated, done) => {
-    // Update UI with each chunk
-    output.push(chunk);
-    updateProgressUI(accumulated, done);
-  }
-);
-```
-
-### Example 8: Cross-Scope Variable Explorer
-
-```typescript
-import { JavaScriptRuntime } from 'mrmd-js';
-
-const runtime = new JavaScriptRuntime();
-
-// Setup multiple scopes
-await runtime.execute('const defaultVar = 1');
-await runtime.scope('analysis').execute('const analysisVar = 2');
-await runtime.scope('viz').execute('const vizVar = 3');
-
-// Get all variables across all scopes
-const allVars = runtime.allVariables();
-
-// Render grouped by scope
-for (const [scopeName, vars] of allVars) {
-  console.log(`\n=== ${scopeName} ===`);
-  vars.forEach(v => console.log(`  ${v.name}: ${v.value}`));
-}
-
-// Output:
-// === default ===
-//   defaultVar: 1
-// === analysis ===
-//   analysisVar: 2
-// === viz ===
-//   vizVar: 3
-```
-
----
-
-## How It Works
-
-### Iframe Sandbox
-
-Code executes in a hidden `<iframe>` with sandbox permissions:
+Code executes in a hidden iframe with full isolation:
 
 ```
 ┌─────────────────────────────────────────┐
@@ -674,18 +578,39 @@ Code executes in a hidden `<iframe>` with sandbox permissions:
 │  │  <iframe sandbox="allow-scripts   │  │
 │  │           allow-same-origin">     │  │
 │  │                                   │  │
-│  │    Your code runs here            │  │
+│  │    Session code runs here         │  │
 │  │    - Isolated global scope        │  │
 │  │    - Full browser APIs            │  │
-│  │    - Can't access parent          │  │
+│  │    - Can't access parent*         │  │
 │  │                                   │  │
 │  └───────────────────────────────────┘  │
 └─────────────────────────────────────────┘
+
+* Unless allowMainAccess: true
 ```
+
+### Main Context
+
+Execute directly in the host page's window:
+
+```javascript
+const session = runtime.createSession({
+  language: 'javascript',
+  isolation: 'main',
+});
+
+// Access real page DOM
+await session.execute(`
+  document.title = 'Modified!';
+  console.log(window.myAppState);
+`);
+```
+
+## How It Works
 
 ### Variable Persistence
 
-Top-level declarations are transformed to assignments:
+Top-level declarations are transformed to persist in the global scope:
 
 ```javascript
 // Your code
@@ -693,63 +618,149 @@ const x = 1;
 let y = 2;
 function greet() { return 'hi'; }
 
-// Transformed (top-level only)
+// Transformed
 x = 1;
 y = 2;
 greet = function() { return 'hi'; }
 ```
 
-This makes variables persist in the iframe's global scope.
-
 ### Async Support
 
-Code is wrapped in an async IIFE:
+Code is automatically wrapped for top-level await:
 
 ```javascript
 // Your code
 const data = await fetch('/api');
-console.log(data);
+data.json()
 
 // Executed as
 (async () => {
   data = await fetch('/api');
-  console.log(data);
+  return data.json();
 })()
 ```
 
 ### Runtime Completions
 
-Unlike static analysis, completions come from **actual runtime values**:
+Unlike static analysis, completions come from actual runtime values:
 
 ```javascript
 const obj = { foo: 1, bar: 2 };
-// Typing "obj." shows: foo, bar, plus Object.prototype methods
+// Typing "obj." shows actual properties: foo, bar
 
-const arr = [1, 2, 3];
-// Typing "arr." shows: Array methods with actual array context
+const dynamicObj = JSON.parse(apiResponse);
+// Shows actual parsed properties, not just "any"
 ```
 
----
+## Examples
 
-## Limitations
+### Data Analysis
 
-| Limitation | Description | Workaround |
-|------------|-------------|------------|
-| **Infinite loops** | No automatic termination | Use timeout option |
-| **TypeScript** | Runs as JavaScript, no type checking | Use external TS compiler |
-| **ES Modules** | `import` statements don't work | Use dynamic `import()` |
-| **Complex destructuring** | Some patterns may not persist | Use simple assignments |
-| **Cross-scope access** | Scopes are fully isolated | Use main context for sharing |
-| **No source maps** | Errors show transformed code | Line numbers may be off |
+```javascript
+const runtime = new MrpRuntime();
+const session = runtime.createSession({ language: 'javascript' });
 
----
+// Cell 1: Load data
+await session.execute(`
+  const sales = [
+    { month: 'Jan', revenue: 1200 },
+    { month: 'Feb', revenue: 1800 },
+    { month: 'Mar', revenue: 2400 },
+  ];
+`);
+
+// Cell 2: Analyze
+await session.execute(`
+  const total = sales.reduce((sum, s) => sum + s.revenue, 0);
+  const avg = total / sales.length;
+  console.log('Total:', total, 'Average:', avg.toFixed(2));
+`);
+// Output: Total: 5400 Average: 1800.00
+
+// Explore variables
+session.listVariables();
+// [{ name: 'sales', type: 'Array', size: '3 items' }, ...]
+```
+
+### Streaming Output
+
+```javascript
+const stream = session.executeStream(`
+  for (let i = 1; i <= 5; i++) {
+    console.log('Processing', i);
+    await new Promise(r => setTimeout(r, 500));
+  }
+`);
+
+for await (const event of stream) {
+  if (event.type === 'stdout') {
+    updateUI(event.text);  // Real-time updates
+  }
+}
+```
+
+### HTML/CSS Rendering
+
+```javascript
+// HTML cell
+const htmlResult = await session.execute(`
+  <div class="card">
+    <h2>Hello World</h2>
+    <p>This is rendered HTML</p>
+  </div>
+`, { executor: 'html' });
+
+// CSS cell
+const cssResult = await session.execute(`
+  .card {
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  }
+`, { executor: 'css' });
+
+// Render with utilities
+const renderer = createHtmlRenderer();
+renderer.renderDisplayData(htmlResult.displayData[0], container);
+
+const applicator = createCssApplicator();
+applicator.applyDisplayData(cssResult.displayData[0]);
+```
+
+### Variable Explorer
+
+```javascript
+await session.execute(`
+  const user = {
+    name: 'Alice',
+    profile: {
+      email: 'alice@example.com',
+      settings: { theme: 'dark' }
+    }
+  };
+`);
+
+// Get top-level variables
+const vars = session.listVariables();
+
+// Expand nested object
+const detail = session.getVariable('user', { depth: 2 });
+// {
+//   name: 'user',
+//   type: 'Object',
+//   children: [
+//     { name: 'name', type: 'string', value: '"Alice"' },
+//     { name: 'profile', type: 'Object', expandable: true, ... }
+//   ]
+// }
+```
 
 ## Test Application
 
 A test playground is included:
 
 ```bash
-# Build and run test app
+# Build and serve
 npm run demo
 
 # Or manually
@@ -758,13 +769,32 @@ npm run serve
 # Open http://localhost:3000
 ```
 
-The test app demonstrates:
-- Basic execution with variable persistence
-- Multiple isolated scopes
-- Main context page access
-- Visible artifact rendering
+## Development
 
----
+```bash
+# Install dependencies
+npm install
+
+# Build
+npm run build
+
+# Run tests
+npm test
+
+# Watch mode
+npm run dev
+```
+
+## Browser Support
+
+- Chrome/Edge 80+
+- Firefox 75+
+- Safari 14+
+
+Requires:
+- ES2020+ (async/await, optional chaining)
+- iframe sandbox support
+- Blob URLs
 
 ## License
 
