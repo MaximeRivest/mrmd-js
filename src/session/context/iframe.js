@@ -8,8 +8,6 @@
  */
 
 import { ConsoleCapture } from '../console-capture.js';
-import { transformForPersistence } from '../../transform/persistence.js';
-import { wrapForAsync } from '../../transform/async.js';
 
 /**
  * @typedef {import('./interface.js').ExecutionContext} ExecutionContext
@@ -164,7 +162,7 @@ export class IframeContext {
 
   /**
    * Execute code in the iframe
-   * @param {string} code
+   * @param {string} code - Already transformed/wrapped code from executor
    * @returns {Promise<RawExecutionResult>}
    */
   async execute(code) {
@@ -180,17 +178,11 @@ export class IframeContext {
     // Clear console capture
     this.#consoleCapture?.clear();
 
-    // Transform code for persistence
-    const transformed = transformForPersistence(code);
-
-    // Wrap for async support
-    const wrapped = wrapForAsync(transformed);
-
     const startTime = performance.now();
 
     try {
-      // Execute
-      const result = await this.#ctx.eval(wrapped);
+      // Execute - code is already transformed/wrapped by the executor
+      const result = await this.#ctx.eval(code);
       const duration = performance.now() - startTime;
 
       // Get logs

@@ -9,7 +9,7 @@
 
 import { BaseExecutor } from './interface.js';
 import { transformForPersistence } from '../transform/persistence.js';
-import { wrapForAsync } from '../transform/async.js';
+import { wrapWithLastExpression } from '../transform/async.js';
 import { extractDeclaredVariables } from '../transform/extract.js';
 
 /**
@@ -83,8 +83,8 @@ export class JavaScriptExecutor extends BaseExecutor {
     // Transform code for persistence (const/let → var)
     const transformed = transformForPersistence(code);
 
-    // Wrap for async support
-    const wrapped = wrapForAsync(transformed);
+    // Wrap to capture last expression value and support async
+    const wrapped = wrapWithLastExpression(transformed);
 
     try {
       // Execute in context

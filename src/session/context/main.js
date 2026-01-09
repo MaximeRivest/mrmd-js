@@ -8,8 +8,6 @@
  */
 
 import { ConsoleCapture } from '../console-capture.js';
-import { transformForPersistence } from '../../transform/persistence.js';
-import { wrapForAsync } from '../../transform/async.js';
 
 /**
  * @typedef {import('./interface.js').ExecutionContext} ExecutionContext
@@ -111,7 +109,7 @@ export class MainContext {
 
   /**
    * Execute code in main context
-   * @param {string} code
+   * @param {string} code - Already transformed/wrapped code from executor
    * @returns {Promise<RawExecutionResult>}
    */
   async execute(code) {
@@ -123,17 +121,11 @@ export class MainContext {
     // Clear console capture
     this.#consoleCapture?.clear();
 
-    // Transform code for persistence
-    const transformed = transformForPersistence(code);
-
-    // Wrap for async support
-    const wrapped = wrapForAsync(transformed);
-
     const startTime = performance.now();
 
     try {
-      // Execute using eval on window
-      const result = await eval(wrapped);
+      // Execute - code is already transformed/wrapped by the executor
+      const result = await eval(code);
       const duration = performance.now() - startTime;
 
       // Get logs

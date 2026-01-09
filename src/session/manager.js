@@ -86,6 +86,7 @@ export class SessionManager {
       isolation: options.isolation || this.#options.defaultIsolation,
       allowMainAccess: options.allowMainAccess ?? this.#options.defaultAllowMainAccess,
       utilities: options.utilities,
+      executorRegistry: options.executorRegistry,
     };
 
     // Create session
