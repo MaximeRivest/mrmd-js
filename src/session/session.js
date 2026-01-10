@@ -279,6 +279,44 @@ export class Session {
     const abortController = new AbortController();
     this.#runningExecutions.set(execId, abortController);
 
+    // Event queue for stdin_request events
+    /** @type {Array<import('../types/streaming.js').StdinRequestEvent>} */
+    const stdinEventQueue = [];
+    let stdinEventResolve = null;
+
+    // Set up stdin handler on context to capture input requests
+    // and yield stdin_request events
+    const previousHandler = this.#context.getStdinHandler?.();
+
+    if (this.#context.setStdinHandler) {
+      this.#context.setStdinHandler((request) => {
+        return new Promise((resolve, reject) => {
+          // Store the resolver for when sendInput is called
+          this.#pendingInputs.set(request.execId, resolve);
+
+          // Queue the stdin_request event to be yielded
+          stdinEventQueue.push({
+            type: 'stdin_request',
+            prompt: request.prompt,
+            password: request.password,
+            execId: request.execId,
+          });
+
+          // Wake up the event loop if waiting
+          if (stdinEventResolve) {
+            stdinEventResolve();
+            stdinEventResolve = null;
+          }
+
+          // Set up abort handling
+          abortController.signal.addEventListener('abort', () => {
+            this.#pendingInputs.delete(request.execId);
+            reject(new Error('Execution aborted'));
+          }, { once: true });
+        });
+      });
+    }
+
     try {
       // Get the executor for this language
       const executor = this.#getExecutor(language);
@@ -292,6 +330,11 @@ export class Session {
           execId,
           language,
         })) {
+          // Yield any pending stdin_request events first
+          while (stdinEventQueue.length > 0) {
+            yield /** @type {import('../types/streaming.js').StdinRequestEvent} */ (stdinEventQueue.shift());
+          }
+
           // Update execution count on result event
           if (event.type === 'result' && options.storeHistory !== false) {
             this.#executionCount++;
@@ -309,13 +352,66 @@ export class Session {
           timestamp,
         });
 
-        try {
-          const result = await executor.execute(code, this.#context, {
-            ...options,
-            execId,
-            language,
-          });
+        // Start execution in background so we can yield events
+        const executionPromise = executor.execute(code, this.#context, {
+          ...options,
+          execId,
+          language,
+        });
 
+        // Poll for stdin events while execution is running
+        let result = null;
+        let error = null;
+        let done = false;
+
+        executionPromise.then(r => {
+          result = r;
+          done = true;
+          if (stdinEventResolve) {
+            stdinEventResolve();
+            stdinEventResolve = null;
+          }
+        }).catch(e => {
+          error = e;
+          done = true;
+          if (stdinEventResolve) {
+            stdinEventResolve();
+            stdinEventResolve = null;
+          }
+        });
+
+        // Wait for either stdin events or completion
+        while (!done) {
+          // Yield any pending stdin_request events
+          while (stdinEventQueue.length > 0) {
+            yield /** @type {import('../types/streaming.js').StdinRequestEvent} */ (stdinEventQueue.shift());
+          }
+
+          if (!done) {
+            // Wait for next event
+            await new Promise(resolve => {
+              stdinEventResolve = resolve;
+              // Also resolve on short timeout to check done flag
+              setTimeout(resolve, 50);
+            });
+          }
+        }
+
+        // Yield any remaining stdin events
+        while (stdinEventQueue.length > 0) {
+          yield /** @type {import('../types/streaming.js').StdinRequestEvent} */ (stdinEventQueue.shift());
+        }
+
+        if (error) {
+          yield /** @type {import('../types/streaming.js').ErrorEvent} */ ({
+            type: 'error',
+            error: {
+              type: error instanceof Error ? error.name : 'Error',
+              message: error instanceof Error ? error.message : String(error),
+              traceback: error instanceof Error && error.stack ? error.stack.split('\n') : undefined,
+            },
+          });
+        } else if (result) {
           if (options.storeHistory !== false) {
             this.#executionCount++;
           }
@@ -359,15 +455,6 @@ export class Session {
             type: 'result',
             result,
           });
-        } catch (error) {
-          yield /** @type {import('../types/streaming.js').ErrorEvent} */ ({
-            type: 'error',
-            error: {
-              type: error instanceof Error ? error.name : 'Error',
-              message: error instanceof Error ? error.message : String(error),
-              traceback: error instanceof Error && error.stack ? error.stack.split('\n') : undefined,
-            },
-          });
         }
 
         yield /** @type {import('../types/streaming.js').DoneEvent} */ ({
@@ -375,6 +462,10 @@ export class Session {
         });
       }
     } finally {
+      // Restore previous stdin handler
+      if (this.#context.setStdinHandler) {
+        this.#context.setStdinHandler(previousHandler || null);
+      }
       this.#runningExecutions.delete(execId);
     }
   }

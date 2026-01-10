@@ -244,6 +244,19 @@ function createConsoleCapture(context) {
  */
 
 /**
+ * @typedef {Object} StdinRequest
+ * @property {string} prompt - Prompt text to display
+ * @property {boolean} password - Whether to hide input
+ * @property {string} execId - Execution ID for this request
+ */
+
+/**
+ * @callback OnStdinRequestCallback
+ * @param {StdinRequest} request - The stdin request
+ * @returns {Promise<string>} - Resolves with user input
+ */
+
+/**
  * @typedef {Object} IframeContextOptions
  * @property {boolean} [visible=false] - Whether iframe is visible
  * @property {HTMLElement} [target] - Target element for visible iframe
@@ -274,6 +287,12 @@ class IframeContext {
 
   /** @type {boolean} */
   #initialized = false;
+
+  /** @type {OnStdinRequestCallback | null} */
+  #onStdinRequest = null;
+
+  /** @type {string} */
+  #currentExecId = '';
 
   /**
    * @param {IframeContextOptions} [options]
@@ -355,6 +374,38 @@ class IframeContext {
       this.#ctx?.console.log(...args);
     };
 
+    // Input helper - prompts for user input (like Python's input())
+    // Returns a Promise that resolves when user provides input
+    const self = this;
+    this.#ctx.input = async (prompt = '', options = {}) => {
+      // Print prompt to console (like Python does)
+      if (prompt) {
+        self.#ctx?.console.log(prompt);
+      }
+
+      // If no stdin handler is set, fall back to browser prompt()
+      if (!self.#onStdinRequest) {
+        const result = self.#ctx?.prompt(prompt) ?? '';
+        return result;
+      }
+
+      // Request input from the external handler
+      const request = {
+        prompt: prompt,
+        password: options.password ?? false,
+        execId: self.#currentExecId,
+      };
+
+      try {
+        const response = await self.#onStdinRequest(request);
+        // Remove trailing newline if present (input() in Python strips it)
+        return response.replace(/\n$/, '');
+      } catch (error) {
+        // If cancelled, throw an error like Python's KeyboardInterrupt
+        throw new Error('Input cancelled');
+      }
+    };
+
     // Display helper for rich output
     this.#ctx.display = (data, mimeType = 'text/plain') => {
       // Store for retrieval
@@ -389,16 +440,36 @@ class IframeContext {
   }
 
   /**
+   * Set the stdin request handler
+   * @param {OnStdinRequestCallback | null} handler
+   */
+  setStdinHandler(handler) {
+    this.#onStdinRequest = handler;
+  }
+
+  /**
+   * Get the current stdin request handler
+   * @returns {OnStdinRequestCallback | null}
+   */
+  getStdinHandler() {
+    return this.#onStdinRequest;
+  }
+
+  /**
    * Execute code in the iframe
    * @param {string} code - Already transformed/wrapped code from executor
+   * @param {{ execId?: string }} [options] - Execution options
    * @returns {Promise<RawExecutionResult>}
    */
-  async execute(code) {
+  async execute(code, options = {}) {
     this.#initialize();
 
     if (!this.#ctx) {
       throw new Error('Context not initialized');
     }
+
+    // Set current execution ID for input() calls
+    this.#currentExecId = options.execId || '';
 
     // Clear display queue
     this.#ctx.__displayQueue__ = [];
@@ -431,6 +502,9 @@ class IframeContext {
         error: error instanceof Error ? error : new Error(String(error)),
         duration,
       };
+    } finally {
+      // Clear current exec ID
+      this.#currentExecId = '';
     }
   }
 
@@ -576,6 +650,19 @@ function createIframeContext(options) {
  */
 
 /**
+ * @typedef {Object} StdinRequest
+ * @property {string} prompt - Prompt text to display
+ * @property {boolean} password - Whether to hide input
+ * @property {string} execId - Execution ID for this request
+ */
+
+/**
+ * @callback OnStdinRequestCallback
+ * @param {StdinRequest} request - The stdin request
+ * @returns {Promise<string>} - Resolves with user input
+ */
+
+/**
  * @typedef {Object} MainContextOptions
  * @property {Record<string, *>} [utilities] - Custom utilities to inject
  */
@@ -599,6 +686,12 @@ class MainContext {
 
   /** @type {Array<{data: Record<string, string>, metadata: Record<string, *>}>} */
   #displayQueue = [];
+
+  /** @type {OnStdinRequestCallback | null} */
+  #onStdinRequest = null;
+
+  /** @type {string} */
+  #currentExecId = '';
 
   /**
    * @param {MainContextOptions} [options]
@@ -627,6 +720,8 @@ class MainContext {
    * Set up utility functions
    */
   #setupUtilities() {
+    const self = this;
+
     // Sleep helper (if not already defined)
     if (!('sleep' in window)) {
       /** @type {*} */ (window).sleep = (ms) =>
@@ -638,6 +733,41 @@ class MainContext {
       /** @type {*} */ (window).print = (...args) => {
         console.log(...args);
       };
+    }
+
+    // Input helper - prompts for user input (like Python's input())
+    /** @type {*} */ (window).__mrmd_input__ = async (prompt = '', options = {}) => {
+      // Print prompt to console (like Python does)
+      if (prompt) {
+        console.log(prompt);
+      }
+
+      // If no stdin handler is set, fall back to browser prompt()
+      if (!self.#onStdinRequest) {
+        const result = window.prompt(prompt) ?? '';
+        return result;
+      }
+
+      // Request input from the external handler
+      const request = {
+        prompt: prompt,
+        password: options.password ?? false,
+        execId: self.#currentExecId,
+      };
+
+      try {
+        const response = await self.#onStdinRequest(request);
+        // Remove trailing newline if present (input() in Python strips it)
+        return response.replace(/\n$/, '');
+      } catch (error) {
+        // If cancelled, throw an error like Python's KeyboardInterrupt
+        throw new Error('Input cancelled');
+      }
+    };
+
+    // Expose as 'input' if not already defined
+    if (!('input' in window)) {
+      /** @type {*} */ (window).input = /** @type {*} */ (window).__mrmd_input__;
     }
 
     // Display helper
@@ -669,12 +799,32 @@ class MainContext {
   }
 
   /**
+   * Set the stdin request handler
+   * @param {OnStdinRequestCallback | null} handler
+   */
+  setStdinHandler(handler) {
+    this.#onStdinRequest = handler;
+  }
+
+  /**
+   * Get the current stdin request handler
+   * @returns {OnStdinRequestCallback | null}
+   */
+  getStdinHandler() {
+    return this.#onStdinRequest;
+  }
+
+  /**
    * Execute code in main context
    * @param {string} code - Already transformed/wrapped code from executor
+   * @param {{ execId?: string }} [options] - Execution options
    * @returns {Promise<RawExecutionResult>}
    */
-  async execute(code) {
+  async execute(code, options = {}) {
     this.#initialize();
+
+    // Set current execution ID for input() calls
+    this.#currentExecId = options.execId || '';
 
     // Clear display queue
     this.#displayQueue = [];
@@ -707,6 +857,9 @@ class MainContext {
         error: error instanceof Error ? error : new Error(String(error)),
         duration,
       };
+    } finally {
+      // Clear current exec ID
+      this.#currentExecId = '';
     }
   }
 
@@ -1606,8 +1759,8 @@ class JavaScriptExecutor extends BaseExecutor {
     const wrapped = wrapWithLastExpression(transformed);
 
     try {
-      // Execute in context
-      const rawResult = await context.execute(wrapped);
+      // Execute in context (pass execId for input() support)
+      const rawResult = await context.execute(wrapped, { execId: options.execId });
       const duration = performance.now() - startTime;
 
       // Format result
@@ -4710,6 +4863,44 @@ class Session {
     const abortController = new AbortController();
     this.#runningExecutions.set(execId, abortController);
 
+    // Event queue for stdin_request events
+    /** @type {Array<import('../types/streaming.js').StdinRequestEvent>} */
+    const stdinEventQueue = [];
+    let stdinEventResolve = null;
+
+    // Set up stdin handler on context to capture input requests
+    // and yield stdin_request events
+    const previousHandler = this.#context.getStdinHandler?.();
+
+    if (this.#context.setStdinHandler) {
+      this.#context.setStdinHandler((request) => {
+        return new Promise((resolve, reject) => {
+          // Store the resolver for when sendInput is called
+          this.#pendingInputs.set(request.execId, resolve);
+
+          // Queue the stdin_request event to be yielded
+          stdinEventQueue.push({
+            type: 'stdin_request',
+            prompt: request.prompt,
+            password: request.password,
+            execId: request.execId,
+          });
+
+          // Wake up the event loop if waiting
+          if (stdinEventResolve) {
+            stdinEventResolve();
+            stdinEventResolve = null;
+          }
+
+          // Set up abort handling
+          abortController.signal.addEventListener('abort', () => {
+            this.#pendingInputs.delete(request.execId);
+            reject(new Error('Execution aborted'));
+          }, { once: true });
+        });
+      });
+    }
+
     try {
       // Get the executor for this language
       const executor = this.#getExecutor(language);
@@ -4723,6 +4914,11 @@ class Session {
           execId,
           language,
         })) {
+          // Yield any pending stdin_request events first
+          while (stdinEventQueue.length > 0) {
+            yield /** @type {import('../types/streaming.js').StdinRequestEvent} */ (stdinEventQueue.shift());
+          }
+
           // Update execution count on result event
           if (event.type === 'result' && options.storeHistory !== false) {
             this.#executionCount++;
@@ -4740,13 +4936,66 @@ class Session {
           timestamp,
         });
 
-        try {
-          const result = await executor.execute(code, this.#context, {
-            ...options,
-            execId,
-            language,
-          });
+        // Start execution in background so we can yield events
+        const executionPromise = executor.execute(code, this.#context, {
+          ...options,
+          execId,
+          language,
+        });
 
+        // Poll for stdin events while execution is running
+        let result = null;
+        let error = null;
+        let done = false;
+
+        executionPromise.then(r => {
+          result = r;
+          done = true;
+          if (stdinEventResolve) {
+            stdinEventResolve();
+            stdinEventResolve = null;
+          }
+        }).catch(e => {
+          error = e;
+          done = true;
+          if (stdinEventResolve) {
+            stdinEventResolve();
+            stdinEventResolve = null;
+          }
+        });
+
+        // Wait for either stdin events or completion
+        while (!done) {
+          // Yield any pending stdin_request events
+          while (stdinEventQueue.length > 0) {
+            yield /** @type {import('../types/streaming.js').StdinRequestEvent} */ (stdinEventQueue.shift());
+          }
+
+          if (!done) {
+            // Wait for next event
+            await new Promise(resolve => {
+              stdinEventResolve = resolve;
+              // Also resolve on short timeout to check done flag
+              setTimeout(resolve, 50);
+            });
+          }
+        }
+
+        // Yield any remaining stdin events
+        while (stdinEventQueue.length > 0) {
+          yield /** @type {import('../types/streaming.js').StdinRequestEvent} */ (stdinEventQueue.shift());
+        }
+
+        if (error) {
+          yield /** @type {import('../types/streaming.js').ErrorEvent} */ ({
+            type: 'error',
+            error: {
+              type: error instanceof Error ? error.name : 'Error',
+              message: error instanceof Error ? error.message : String(error),
+              traceback: error instanceof Error && error.stack ? error.stack.split('\n') : undefined,
+            },
+          });
+        } else if (result) {
           if (options.storeHistory !== false) {
             this.#executionCount++;
           }
@@ -4790,15 +5039,6 @@ class Session {
             type: 'result',
             result,
           });
-        } catch (error) {
-          yield /** @type {import('../types/streaming.js').ErrorEvent} */ ({
-            type: 'error',
-            error: {
-              type: error instanceof Error ? error.name : 'Error',
-              message: error instanceof Error ? error.message : String(error),
-              traceback: error instanceof Error && error.stack ? error.stack.split('\n') : undefined,
-            },
-          });
         }
 
         yield /** @type {import('../types/streaming.js').DoneEvent} */ ({
@@ -4806,6 +5046,10 @@ class Session {
         });
       }
     } finally {
+      // Restore previous stdin handler
+      if (this.#context.setStdinHandler) {
+        this.#context.setStdinHandler(previousHandler || null);
+      }
       this.#runningExecutions.delete(execId);
     }
   }

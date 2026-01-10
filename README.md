@@ -654,6 +654,47 @@ const dynamicObj = JSON.parse(apiResponse);
 
 ## Examples
 
+### Interactive Input
+
+The `input()` function lets you prompt for user input, just like Python:
+
+```javascript
+const runtime = new MrpRuntime();
+const session = runtime.createSession({ language: 'javascript' });
+
+// Use input() in your code - it returns a Promise
+const stream = session.executeStream(`
+  const name = await input("What is your name? ");
+  console.log("Hello, " + name + "!");
+
+  const age = await input("How old are you? ");
+  console.log("You are " + age + " years old.");
+`);
+
+// Handle stdin_request events
+for await (const event of stream) {
+  if (event.type === 'stdin_request') {
+    // Show input UI to user
+    const userInput = await showInputDialog(event.prompt);
+
+    // Send the input back
+    session.sendInput(event.execId, userInput);
+  }
+
+  if (event.type === 'stdout') {
+    console.log(event.content);
+  }
+}
+```
+
+The `input()` function:
+- Prints the prompt to stdout (like Python)
+- Pauses execution until input is provided
+- Returns the user's input (without trailing newline)
+- Supports `{ password: true }` option to hide input
+
+Without a stdin handler configured, `input()` falls back to the browser's `prompt()` dialog.
+
 ### Data Analysis
 
 ```javascript

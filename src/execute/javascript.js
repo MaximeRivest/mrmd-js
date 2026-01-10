@@ -87,8 +87,8 @@ export class JavaScriptExecutor extends BaseExecutor {
     const wrapped = wrapWithLastExpression(transformed);
 
     try {
-      // Execute in context
-      const rawResult = await context.execute(wrapped);
+      // Execute in context (pass execId for input() support)
+      const rawResult = await context.execute(wrapped, { execId: options.execId });
       const duration = performance.now() - startTime;
 
       // Format result

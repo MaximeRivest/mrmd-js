@@ -15,6 +15,19 @@ import { ConsoleCapture } from '../console-capture.js';
  */
 
 /**
+ * @typedef {Object} StdinRequest
+ * @property {string} prompt - Prompt text to display
+ * @property {boolean} password - Whether to hide input
+ * @property {string} execId - Execution ID for this request
+ */
+
+/**
+ * @callback OnStdinRequestCallback
+ * @param {StdinRequest} request - The stdin request
+ * @returns {Promise<string>} - Resolves with user input
+ */
+
+/**
  * @typedef {Object} MainContextOptions
  * @property {Record<string, *>} [utilities] - Custom utilities to inject
  */
@@ -38,6 +51,12 @@ export class MainContext {
 
   /** @type {Array<{data: Record<string, string>, metadata: Record<string, *>}>} */
   #displayQueue = [];
+
+  /** @type {OnStdinRequestCallback | null} */
+  #onStdinRequest = null;
+
+  /** @type {string} */
+  #currentExecId = '';
 
   /**
    * @param {MainContextOptions} [options]
@@ -66,6 +85,8 @@ export class MainContext {
    * Set up utility functions
    */
   #setupUtilities() {
+    const self = this;
+
     // Sleep helper (if not already defined)
     if (!('sleep' in window)) {
       /** @type {*} */ (window).sleep = (ms) =>
@@ -77,6 +98,41 @@ export class MainContext {
       /** @type {*} */ (window).print = (...args) => {
         console.log(...args);
       };
+    }
+
+    // Input helper - prompts for user input (like Python's input())
+    /** @type {*} */ (window).__mrmd_input__ = async (prompt = '', options = {}) => {
+      // Print prompt to console (like Python does)
+      if (prompt) {
+        console.log(prompt);
+      }
+
+      // If no stdin handler is set, fall back to browser prompt()
+      if (!self.#onStdinRequest) {
+        const result = window.prompt(prompt) ?? '';
+        return result;
+      }
+
+      // Request input from the external handler
+      const request = {
+        prompt: prompt,
+        password: options.password ?? false,
+        execId: self.#currentExecId,
+      };
+
+      try {
+        const response = await self.#onStdinRequest(request);
+        // Remove trailing newline if present (input() in Python strips it)
+        return response.replace(/\n$/, '');
+      } catch (error) {
+        // If cancelled, throw an error like Python's KeyboardInterrupt
+        throw new Error('Input cancelled');
+      }
+    };
+
+    // Expose as 'input' if not already defined
+    if (!('input' in window)) {
+      /** @type {*} */ (window).input = /** @type {*} */ (window).__mrmd_input__;
     }
 
     // Display helper
@@ -108,12 +164,32 @@ export class MainContext {
   }
 
   /**
+   * Set the stdin request handler
+   * @param {OnStdinRequestCallback | null} handler
+   */
+  setStdinHandler(handler) {
+    this.#onStdinRequest = handler;
+  }
+
+  /**
+   * Get the current stdin request handler
+   * @returns {OnStdinRequestCallback | null}
+   */
+  getStdinHandler() {
+    return this.#onStdinRequest;
+  }
+
+  /**
    * Execute code in main context
    * @param {string} code - Already transformed/wrapped code from executor
+   * @param {{ execId?: string }} [options] - Execution options
    * @returns {Promise<RawExecutionResult>}
    */
-  async execute(code) {
+  async execute(code, options = {}) {
     this.#initialize();
+
+    // Set current execution ID for input() calls
+    this.#currentExecId = options.execId || '';
 
     // Clear display queue
     this.#displayQueue = [];
@@ -146,6 +222,9 @@ export class MainContext {
         error: error instanceof Error ? error : new Error(String(error)),
         duration,
       };
+    } finally {
+      // Clear current exec ID
+      this.#currentExecId = '';
     }
   }
 

@@ -16,6 +16,19 @@ import { ConsoleCapture } from '../console-capture.js';
  */
 
 /**
+ * @typedef {Object} StdinRequest
+ * @property {string} prompt - Prompt text to display
+ * @property {boolean} password - Whether to hide input
+ * @property {string} execId - Execution ID for this request
+ */
+
+/**
+ * @callback OnStdinRequestCallback
+ * @param {StdinRequest} request - The stdin request
+ * @returns {Promise<string>} - Resolves with user input
+ */
+
+/**
  * @typedef {Object} IframeContextOptions
  * @property {boolean} [visible=false] - Whether iframe is visible
  * @property {HTMLElement} [target] - Target element for visible iframe
@@ -46,6 +59,12 @@ export class IframeContext {
 
   /** @type {boolean} */
   #initialized = false;
+
+  /** @type {OnStdinRequestCallback | null} */
+  #onStdinRequest = null;
+
+  /** @type {string} */
+  #currentExecId = '';
 
   /**
    * @param {IframeContextOptions} [options]
@@ -127,6 +146,38 @@ export class IframeContext {
       this.#ctx?.console.log(...args);
     };
 
+    // Input helper - prompts for user input (like Python's input())
+    // Returns a Promise that resolves when user provides input
+    const self = this;
+    this.#ctx.input = async (prompt = '', options = {}) => {
+      // Print prompt to console (like Python does)
+      if (prompt) {
+        self.#ctx?.console.log(prompt);
+      }
+
+      // If no stdin handler is set, fall back to browser prompt()
+      if (!self.#onStdinRequest) {
+        const result = self.#ctx?.prompt(prompt) ?? '';
+        return result;
+      }
+
+      // Request input from the external handler
+      const request = {
+        prompt: prompt,
+        password: options.password ?? false,
+        execId: self.#currentExecId,
+      };
+
+      try {
+        const response = await self.#onStdinRequest(request);
+        // Remove trailing newline if present (input() in Python strips it)
+        return response.replace(/\n$/, '');
+      } catch (error) {
+        // If cancelled, throw an error like Python's KeyboardInterrupt
+        throw new Error('Input cancelled');
+      }
+    };
+
     // Display helper for rich output
     this.#ctx.display = (data, mimeType = 'text/plain') => {
       // Store for retrieval
@@ -161,16 +212,36 @@ export class IframeContext {
   }
 
   /**
+   * Set the stdin request handler
+   * @param {OnStdinRequestCallback | null} handler
+   */
+  setStdinHandler(handler) {
+    this.#onStdinRequest = handler;
+  }
+
+  /**
+   * Get the current stdin request handler
+   * @returns {OnStdinRequestCallback | null}
+   */
+  getStdinHandler() {
+    return this.#onStdinRequest;
+  }
+
+  /**
    * Execute code in the iframe
    * @param {string} code - Already transformed/wrapped code from executor
+   * @param {{ execId?: string }} [options] - Execution options
    * @returns {Promise<RawExecutionResult>}
    */
-  async execute(code) {
+  async execute(code, options = {}) {
     this.#initialize();
 
     if (!this.#ctx) {
       throw new Error('Context not initialized');
     }
+
+    // Set current execution ID for input() calls
+    this.#currentExecId = options.execId || '';
 
     // Clear display queue
     this.#ctx.__displayQueue__ = [];
@@ -203,6 +274,9 @@ export class IframeContext {
         error: error instanceof Error ? error : new Error(String(error)),
         duration,
       };
+    } finally {
+      // Clear current exec ID
+      this.#currentExecId = '';
     }
   }
 
